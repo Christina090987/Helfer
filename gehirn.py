@@ -61,6 +61,8 @@ def projekt_speichern(daten: dict) -> None:
 # Figuren:  {id, name, rolle, alter, aussehen, charakter, wunde, ziel, sprechweise, notizen}
 # Orte:     {id, name, beschreibung}
 # Wissen:   {id, titel, inhalt, quelle, datum}   <- alles, womit gefüttert wird
+# Stimme:   {id, titel, inhalt, datum}           <- Textproben im eigenen Stil
+# Plan:     {id, kapitel, titel, pov, beat, inhalt, erledigt}
 
 def liste(name: str) -> list:
     return _lies(DATEN / f"{name}.json", [])
@@ -114,6 +116,14 @@ def kapitel_speichern(name: str, text: str) -> None:
     (KAPITEL / f"{name}.md").write_text(text, encoding="utf-8")
 
 
+def woerter(text: str) -> int:
+    return len(text.split())
+
+
+def manuskript_gesamt() -> str:
+    return "\n\n".join(f"# {k}\n\n{kapitel_lesen(k)}" for k in kapitel_liste())
+
+
 # --- Chat-Verlauf ---------------------------------------------------------------
 
 def chat() -> list:
@@ -151,6 +161,23 @@ def als_text() -> str:
     if orte:
         teile.append("\n## Orte")
         teile += [f"- **{o['name']}** – {o['beschreibung']}" for o in orte]
+
+    stimme = liste("stimme")
+    if stimme:
+        teile.append(
+            "\n## Stimmproben der Autorin – so klingt SIE. Wenn du für sie schreibst, "
+            "triff genau diese Stimme (Satzlänge, Humor, Wortwahl, Rhythmus)."
+        )
+        teile += [f"### {s['titel']}\n{s['inhalt']}" for s in stimme]
+
+    plan = liste("plan")
+    if plan:
+        teile.append("\n## Plot-Plan")
+        teile += [
+            f"- Kapitel {k['kapitel']} „{k['titel']}“ ({k['pov']}, {k['beat']})"
+            f"{' ✓ geschrieben' if k.get('erledigt') else ''}: {k['inhalt']}"
+            for k in plan
+        ]
 
     wissen = liste("wissen")
     if wissen:

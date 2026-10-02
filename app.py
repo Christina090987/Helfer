@@ -34,6 +34,7 @@ with st.sidebar:
         p["stil_vorbilder"] = st.text_input("Schreib wie …", p["stil_vorbilder"])
         p["stil_beschreibung"] = st.text_area("So klingt mein Buch", p["stil_beschreibung"], height=200)
         p["pruefung_sprache"] = st.text_input("Sprache für Korrektur", p["pruefung_sprache"])
+        p["wortziel"] = st.number_input("Wortziel fürs Buch", 10000, 300000, int(p.get("wortziel", 80000)), 5000)
         if st.button("Speichern", key="projekt_speichern"):
             gehirn.projekt_speichern(p)
             st.success("Gespeichert.")
@@ -59,9 +60,25 @@ def ki_fehler(fehler: Exception) -> None:
         st.error(f"Da ist etwas schiefgelaufen: {fehler}")
 
 
-chat_tab, schreib_tab, figuren_tab, korrektur_tab, gehirn_tab = st.tabs(
-    ["💬 Erzähl mir", "✍️ Schreiben", "👤 Figuren", "🔍 Korrektur", "🧠 Gehirn"]
+chat_tab, plan_tab, schreib_tab, werkstatt_tab, figuren_tab, korrektur_tab, gehirn_tab = st.tabs(
+    ["💬 Erzähl mir", "📋 Plot-Plan", "✍️ Schreiben", "🎨 Überarbeiten", "👤 Figuren", "🔍 Korrektur", "🧠 Gehirn"]
 )
+
+def manuskript_docx() -> bytes:
+    import docx  # python-docx
+
+    dok = docx.Document()
+    dok.add_heading(gehirn.projekt()["titel"], 0)
+    for k in gehirn.kapitel_liste():
+        dok.add_page_break()
+        dok.add_heading(k, 1)
+        for absatz in gehirn.kapitel_lesen(k).split("\n"):
+            if absatz.strip():
+                dok.add_paragraph(absatz.strip())
+    puffer = io.BytesIO()
+    dok.save(puffer)
+    return puffer.getvalue()
+
 
 # --- 💬 Zuhören & Ideen -------------------------------------------------------------
 
@@ -101,6 +118,60 @@ with chat_tab:
                 except Exception as e:  # noqa: BLE001 – Fehler freundlich anzeigen
                     ki_fehler(e)
 
+# --- 📋 Plot-Plan ------------------------------------------------------------------
+
+with plan_tab:
+    st.subheader("Dein Buch – Kapitel für Kapitel geplant")
+    st.caption("Entlang der Romance-Beats: Meet-Cute, Reibung, erster Kuss, Bruch, Grand Gesture, Happy End …")
+    idee = st.text_area("Worum geht's? (leer lassen = ich nutze das Gehirn)", height=100,
+                        placeholder="z. B. Sie wird die Nanny des grummeligen Witwers, der ihr Jugendschwarm war …")
+    anzahl = st.slider("Wie viele Kapitel?", 10, 60, 30)
+    if st.button("✨ Plot planen"):
+        c = verbindung()
+        if c:
+            with st.spinner("Ich plane dein Buch …"):
+                try:
+                    st.session_state["plan_entwurf"] = ki.plot_planen(c, idee, anzahl)
+                except Exception as e:  # noqa: BLE001
+                    ki_fehler(e)
+
+    if entwurf_plan := st.session_state.get("plan_entwurf"):
+        st.markdown("**Vorschlag:**")
+        for k in entwurf_plan:
+            st.markdown(f"**{k['kapitel']}. {k['titel']}** · _{k['pov']} · {k['beat']}_  \n{k['inhalt']}")
+        a, b = st.columns(2)
+        if a.button("💾 Diesen Plan übernehmen"):
+            gehirn.liste_speichern("plan", [{"id": gehirn.neue_id(), "erledigt": False, **k} for k in entwurf_plan])
+            st.session_state.pop("plan_entwurf")
+            st.rerun()
+        if b.button("Verwerfen"):
+            st.session_state.pop("plan_entwurf")
+            st.rerun()
+
+    plan = gehirn.liste("plan")
+    if plan:
+        st.divider()
+        fertig = sum(k.get("erledigt", False) for k in plan)
+        st.markdown(f"**Mein Plan** – {fertig} von {len(plan)} Kapiteln geschrieben")
+        st.progress(fertig / len(plan))
+        for k in plan:
+            with st.expander(f"{'✅' if k.get('erledigt') else '⬜'} {k['kapitel']}. {k['titel']} · {k['pov']}"):
+                k["titel"] = st.text_input("Titel", k["titel"], key=f"pt_{k['id']}")
+                k["pov"] = st.text_input("Sicht", k["pov"], key=f"pp_{k['id']}")
+                k["beat"] = st.text_input("Beat", k["beat"], key=f"pb_{k['id']}")
+                k["inhalt"] = st.text_area("Was passiert", k["inhalt"], key=f"pi_{k['id']}")
+                k["erledigt"] = st.checkbox("Geschrieben", k.get("erledigt", False), key=f"pe_{k['id']}")
+                s1, s2 = st.columns(2)
+                if s1.button("💾 Speichern", key=f"ps_{k['id']}"):
+                    gehirn.liste_speichern("plan", plan)
+                    st.rerun()
+                if s2.button("✍️ Als Szene schreiben", key=f"pw_{k['id']}"):
+                    st.session_state["szene_text"] = (
+                        f"Kapitel {k['kapitel']} „{k['titel']}“ ({k['beat']}), Sicht: {k['pov']}. {k['inhalt']}"
+                    )
+                    st.toast("Übernommen – wechsle zum Reiter ✍️ Schreiben.")
+                    st.rerun()
+
 # --- ✍️ Szenen schreiben & Manuskript ----------------------------------------------
 
 with schreib_tab:
@@ -113,6 +184,7 @@ with schreib_tab:
             "Was soll passieren?",
             placeholder="z. B. Sie trifft ihren neuen Chef im Aufzug – sie hat ihn letzte Nacht an der Bar abblitzen lassen …",
             height=140,
+            key="szene_text",
         )
         perspektive = st.selectbox("Perspektive", ["Ich – Heldin", "Ich – Held", "Abwechselnd", "Dritte Person"])
         laenge = st.select_slider("Länge", ["kurz", "mittel", "lang"], value="mittel")
@@ -143,10 +215,46 @@ with schreib_tab:
             name = auswahl
             inhalt = gehirn.kapitel_lesen(auswahl)
         text = st.text_area("Text", inhalt, height=480, key=f"kapitel_{name}_{hash(inhalt)}")
+        st.caption(f"{gehirn.woerter(text):,} Wörter in diesem Kapitel".replace(",", "."))
         if st.button("💾 Kapitel speichern"):
             gehirn.kapitel_speichern(name, text)
             st.session_state.pop("entwurf", None)
             st.success(f"„{name}“ gespeichert.")
+
+    st.divider()
+    gesamt = gehirn.manuskript_gesamt()
+    ziel = int(gehirn.projekt().get("wortziel", 80000))
+    geschafft = sum(gehirn.woerter(gehirn.kapitel_lesen(k)) for k in gehirn.kapitel_liste())
+    st.markdown(f"**Fortschritt:** {geschafft:,} von {ziel:,} Wörtern".replace(",", "."))
+    st.progress(min(geschafft / ziel, 1.0))
+    if gesamt:
+        e1, e2 = st.columns(2)
+        e1.download_button("⬇️ Manuskript als Word (.docx)", manuskript_docx(),
+                           file_name=f"{gehirn.projekt()['titel']}.docx")
+        e2.download_button("⬇️ Manuskript als Text (.md)", gesamt,
+                           file_name=f"{gehirn.projekt()['titel']}.md")
+
+# --- 🎨 Überarbeiten ----------------------------------------------------------------
+
+with werkstatt_tab:
+    st.subheader("Überarbeiten – eine Stelle besser machen")
+    passage = st.text_area("Füg die Stelle ein, die noch nicht sitzt", height=220)
+    art = st.radio("Was soll besser werden?", list(ki.UEBERARBEITUNGEN), horizontal=True)
+    extra = st.text_input("Noch ein Wunsch? (optional)", placeholder="z. B. Er soll am Ende nicht nachgeben")
+    if st.button("🎨 Überarbeiten") and passage.strip():
+        c = verbindung()
+        if c:
+            l, r = st.columns(2)
+            l.markdown("**Vorher**")
+            l.markdown(passage)
+            with r:
+                st.markdown("**Nachher**")
+                try:
+                    st.session_state["ueberarbeitet"] = st.write_stream(ki.ueberarbeiten(c, passage, art, extra))
+                except Exception as e:  # noqa: BLE001
+                    ki_fehler(e)
+    if st.session_state.get("ueberarbeitet"):
+        st.text_area("Zum Kopieren", st.session_state["ueberarbeitet"], height=200)
 
 # --- 👤 Figuren ---------------------------------------------------------------------
 
@@ -256,6 +364,16 @@ with gehirn_tab:
             })
         st.success(f"{len(dateien)} Datei(en) gespeichert.")
 
+    with st.form("stimme", clear_on_submit=True):
+        st.markdown("**🎙️ Meine Stimme** – füg Texte ein, die du selbst geschrieben hast und die "
+                    "so klingen, wie du klingen willst. Ich lerne daraus deinen Stil.")
+        st_titel = st.text_input("Titel der Probe", placeholder="z. B. Lieblingsszene Kapitel 3")
+        st_text = st.text_area("Deine Textprobe", height=150)
+        if st.form_submit_button("💾 Stimmprobe speichern") and st_text:
+            gehirn.eintrag_hinzufuegen("stimme", {"titel": st_titel or "Stimmprobe", "inhalt": st_text,
+                                                   "datum": gehirn.jetzt()})
+            st.success("Gespeichert – ab jetzt schreibe ich mehr wie du.")
+
     with st.form("notiz", clear_on_submit=True):
         titel = st.text_input("Notiz-Titel", placeholder="z. B. Weltregeln, Recherche Hamburg, Playlist …")
         inhalt = st.text_area("Inhalt")
@@ -314,6 +432,12 @@ with gehirn_tab:
             st.markdown(o["beschreibung"])
             if st.button("Löschen", key=f"ort_del_{o['id']}"):
                 gehirn.eintrag_loeschen("orte", o["id"])
+                st.rerun()
+    for s_probe in gehirn.liste("stimme"):
+        with st.expander(f"🎙️ {s_probe['titel']}  ·  Stimmprobe {s_probe.get('datum', '')}"):
+            st.markdown(s_probe["inhalt"])
+            if st.button("Löschen", key=f"sti_del_{s_probe['id']}"):
+                gehirn.eintrag_loeschen("stimme", s_probe["id"])
                 st.rerun()
     for w in gehirn.liste("wissen"):
         with st.expander(f"📎 {w['titel']}  ·  {w.get('quelle', '')} {w.get('datum', '')}"):

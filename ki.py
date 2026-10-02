@@ -174,3 +174,46 @@ def gehirn_aufbauen(c: anthropic.Anthropic) -> dict:
         "Leserin, Widersprüche, die noch aufgelöst werden müssen"
     )
     return _json(c, auftrag, GEHIRN_AUFBAU, effort="high")
+
+
+PLAN = _objekt({
+    "kapitel": {
+        "type": "array",
+        "items": _objekt({"kapitel": {"type": "integer"}, "titel": TXT, "pov": TXT, "beat": TXT, "inhalt": TXT}),
+    },
+})
+
+
+def plot_planen(c: anthropic.Anthropic, idee: str, anzahl: int) -> list[dict]:
+    """Plant das Buch Kapitel für Kapitel entlang der Romance-Beats."""
+    auftrag = (
+        f"Plane mein Buch in genau {anzahl} Kapiteln. Nutze die klassischen "
+        "Romance-Beats (Meet-Cute, Ablehnung/Reibung, erzwungene Nähe, erster "
+        "Kuss, Annäherung, Midpoint, Vertiefung, dunkler Moment/Bruch, Grand "
+        "Gesture, HEA/HFN) und verteile sie sinnvoll. Pro Kapitel: 'beat' = "
+        "welcher Beat, 'pov' = aus wessen Sicht, 'inhalt' = 2–4 Sätze, was "
+        "passiert, inklusive Cliffhanger am Ende. Berücksichtige vorhandene "
+        "Figuren, Handlung und bereits geschriebene Kapitel aus dem Gehirn.\n\n"
+        f"Meine Idee / Wünsche: {idee or '(nimm, was im Gehirn steht)'}"
+    )
+    return _json(c, auftrag, PLAN, effort="high")["kapitel"]
+
+
+UEBERARBEITUNGEN = {
+    "Emotionaler": "Mach die Gefühle stärker spürbar – körperliche Reaktionen, innere Gedanken, Subtext.",
+    "Mehr Schlagabtausch": "Mehr Humor und bissiges Hin und Her in den Dialogen, schnelleres Tempo.",
+    "Mehr Spannung / Knistern": "Mehr sexuelle Spannung und Slow-Burn-Knistern, Blicke, Nähe, Beinahe-Momente.",
+    "Show, don't tell": "Ersetze Behauptungen über Gefühle durch Handlungen, Gesten und Details.",
+    "Kürzen & straffen": "Kürze um etwa ein Drittel, streiche Wiederholungen, behalte die stärksten Sätze.",
+    "Stärkeres Kapitelende": "Schreib das Ende um, sodass ein starker Cliffhanger entsteht.",
+    "In meiner Stimme": "Schreib es so um, dass es exakt wie meine Stimmproben klingt.",
+}
+
+
+def ueberarbeiten(c: anthropic.Anthropic, text: str, art: str, wunsch: str) -> Iterator[str]:
+    auftrag = (
+        f"Überarbeite diese Passage aus meinem Buch. Ziel: {UEBERARBEITUNGEN[art]} "
+        f"{wunsch}\nBleib bei Handlung, Figuren und Fakten. Gib nur den "
+        f"überarbeiteten Text zurück, ohne Vorrede.\n\n<<<\n{text}\n>>>"
+    )
+    return streamen(c, [{"role": "user", "content": auftrag}], effort="high")
